@@ -99,6 +99,7 @@ const TablePage = () => {
   })
 
   const [newColumnName, setNewColumnName] = useState('')
+  const [draggingColumnKey, setDraggingColumnKey] = useState(null)
 
   // сохранение в localStorage при любых изменениях
   useEffect(() => {
@@ -151,8 +152,39 @@ const TablePage = () => {
     setNewColumnName('')
   }
 
+  const handleDragStart = (dataIndex) => {
+    setDraggingColumnKey(dataIndex)
+  }
+
+  const handleDrop = (targetDataIndex) => {
+    if (!draggingColumnKey || draggingColumnKey === targetDataIndex) return
+
+    setColumns((prev) => {
+      const fromIndex = prev.findIndex((c) => c.dataIndex === draggingColumnKey)
+      const toIndex = prev.findIndex((c) => c.dataIndex === targetDataIndex)
+      if (fromIndex === -1 || toIndex === -1) return prev
+
+      const next = [...prev]
+      const [moved] = next.splice(fromIndex, 1)
+      next.splice(toIndex, 0, moved)
+      return next
+    })
+
+    setDraggingColumnKey(null)
+  }
+
+  const handleDragOver = (event) => {
+    event.preventDefault()
+  }
+
   const editableColumns = columns.map((col) => ({
     ...col,
+    onHeaderCell: () => ({
+      draggable: true,
+      onDragStart: () => handleDragStart(col.dataIndex),
+      onDragOver: handleDragOver,
+      onDrop: () => handleDrop(col.dataIndex),
+    }),
     render: (_, record) => (
       <Input
         value={record[col.dataIndex] ?? ''}

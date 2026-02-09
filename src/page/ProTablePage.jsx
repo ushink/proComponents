@@ -115,6 +115,7 @@ const ProTablePage = () => {
   })
 
   const [newColumnName, setNewColumnName] = useState('')
+  const [draggingColumnKey, setDraggingColumnKey] = useState(null)
 
   // сохранение состояния в localStorage
   useEffect(() => {
@@ -152,6 +153,41 @@ const ProTablePage = () => {
     setNewColumnName('')
   }
 
+  const handleDragStart = (dataIndex) => {
+    setDraggingColumnKey(dataIndex)
+  }
+
+  const handleDrop = (targetDataIndex) => {
+    if (!draggingColumnKey || draggingColumnKey === targetDataIndex) return
+
+    setColumns((prev) => {
+      const fromIndex = prev.findIndex((c) => c.dataIndex === draggingColumnKey)
+      const toIndex = prev.findIndex((c) => c.dataIndex === targetDataIndex)
+      if (fromIndex === -1 || toIndex === -1) return prev
+
+      const next = [...prev]
+      const [moved] = next.splice(fromIndex, 1)
+      next.splice(toIndex, 0, moved)
+      return next
+    })
+
+    setDraggingColumnKey(null)
+  }
+
+  const handleDragOver = (event) => {
+    event.preventDefault()
+  }
+
+  const draggableColumns = columns.map((col) => ({
+    ...col,
+    onHeaderCell: () => ({
+      draggable: true,
+      onDragStart: () => handleDragStart(col.dataIndex),
+      onDragOver: handleDragOver,
+      onDrop: () => handleDrop(col.dataIndex),
+    }),
+  }))
+
   return (
     <Flex vertical style={{ padding: 24, minHeight: '100vh', gap: 16 }}>
       <Title level={3}>ProTable (ant-design/pro-components)</Title>
@@ -171,7 +207,7 @@ const ProTablePage = () => {
 
       <EditableProTable
         rowKey="key"
-        columns={columns}
+        columns={draggableColumns}
         value={dataSource}
         onChange={setDataSource}
         editable={{
