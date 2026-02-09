@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react'
-import { Button, Modal, Space, Typography } from 'antd'
+import { Button, Modal, Space, Typography, Checkbox } from 'antd'
 import { MenuOutlined, SettingOutlined } from '@ant-design/icons'
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd'
 
@@ -13,17 +13,36 @@ const loadOrder = (storageKey, columns) => {
     const saved = window.localStorage.getItem(storageKey)
     if (!saved) return columns.map(getColumnKey)
     const parsed = JSON.parse(saved)
-    if (Array.isArray(parsed)) return parsed
+    if (parsed?.order && Array.isArray(parsed.order)) {
+      const allKeys = columns.map((col, i) => getColumnKey(col, i))
+      const existing = parsed.order.filter(key => allKeys.includes(key))
+      const missing = allKeys.filter(key => !existing.includes(key))
+      return [...existing, ...missing]
+    }
   } catch {
     // ignore
   }
   return columns.map(getColumnKey)
 }
 
-const saveOrder = (storageKey, order) => {
+const loadHidden = (storageKey) => {
+  if (typeof window === 'undefined') return []
+  try {
+    const saved = window.localStorage.getItem(storageKey)
+    if (!saved) return []
+    const parsed = JSON.parse(saved)
+    if (Array.isArray(parsed?.hidden)) return parsed.hidden
+  } catch {
+    // ignore
+  }
+  return []
+}
+
+const saveSettings = (storageKey, order, hidden) => {
   if (typeof window === 'undefined') return
   try {
-    window.localStorage.setItem(storageKey, JSON.stringify(order))
+    const payload = { order, hidden }
+    window.localStorage.setItem(storageKey, JSON.stringify(payload))
   } catch {
     // ignore
   }
@@ -31,22 +50,23 @@ const saveOrder = (storageKey, order) => {
 
 const useColumnSettings = (storageKey, columns) => {
   const [order, setOrder] = useState(() => loadOrder(storageKey, columns))
+  const [hidden, setHidden] = useState(() => loadHidden(storageKey))
   const [open, setOpen] = useState(false)
   const [draftOrder, setDraftOrder] = useState([])
+  const [draftHidden, setDraftHidden] = useState([])
 
-  // Инициализируем draftOrder при монтировании
+  // Инициализируем draft при монтировании и обновлении
   useEffect(() => {
     setDraftOrder(order)
-  }, [order])
+    setDraftHidden(hidden)
+  }, [order, hidden])
 
-  // Обработчик открытия модалки - используем useCallback
+  // Обработчик открытия модалки
   const handleOpenModal = useCallback(() => {
     setOpen(true)
-    // Устанавливаем draftOrder синхронно при открытии
     setDraftOrder(order)
-    console.log('draftOrder', draftOrder)
-  }, [order])
-
+    setDraftHidden(hidden)
+  }, [order, hidden])
 
   const orderedColumns = useMemo(() => {
     const keyToColumn = new Map()
@@ -56,33 +76,34 @@ const useColumnSettings = (storageKey, columns) => {
     const result = []
     order.forEach((key) => {
       const col = keyToColumn.get(key)
-      if (col) result.push(col)
+      if (col && !hidden.includes(key)) result.push(col)
     })
-    // на всякий случай добавим новые ключи, которые не попали в order
+    // Добавляем новые ключи, которые не попали в order
     columns.forEach((col, index) => {
       const key = getColumnKey(col, index)
-      if (!order.includes(key)) {
+      if (!order.includes(key) && !hidden.includes(key)) {
         result.push(col)
       }
     })
     return result
-  }, [columns, order])
+  }, [columns, order, hidden])
 
   // Компонент модального окна
   const ColumnSettingsModal = () => {
-    // Используем локальное состояние для отображения в модалке
+    // Локальное состояние для модалки
     const [localOrder, setLocalOrder] = useState(order)
-    
-    // Синхронизируем при открытии с использованием requestAnimationFrame
+    const [localHidden, setLocalHidden] = useState(hidden)
+
+    // Синхронизируем при открытии
     useEffect(() => {
       if (open) {
-        // Используем requestAnimationFrame для избежания синхронного обновления
         const timer = requestAnimationFrame(() => {
           setLocalOrder(order)
+          setLocalHidden(hidden)
         })
         return () => cancelAnimationFrame(timer)
       }
-    }, [open, order])
+    }, [open, order, hidden])
 
     if (!open) return null
 
@@ -100,14 +121,22 @@ const useColumnSettings = (storageKey, columns) => {
       })
     }
 
+    const handleToggleVisibility = (key, checked) => {
+      setLocalHidden((prev) =>
+        checked ? prev.filter((h) => h !== key) : [...prev, key]
+      )
+    }
+
     const handleModalSubmit = () => {
-      const allKeys = columns.map(getColumnKey)
-      const existing = localOrder.filter((key) => allKeys.includes(key))
-      const missing = allKeys.filter((key) => !existing.includes(key))
-      const next = [...existing, ...missing]
-      
-      setOrder(next)
-      saveOrder(storageKey, next)
+      const allKeys = columns.map((col, i) => getColumnKey(col, i))
+      const existingOrder = localOrder.filter((key) => allKeys.includes(key))
+      const missingOrder = allKeys.filter((key) => !existingOrder.includes(key) && !localHidden.includes(key))
+      const nextOrder = [...existingOrder, ...missingOrder]
+      const nextHidden = localHidden.filter((key) => allKeys.includes(key))
+
+      setOrder(nextOrder)
+      setHidden(nextHidden)
+      saveSettings(storageKey, nextOrder, nextHidden)
       setOpen(false)
     }
 
@@ -123,7 +152,7 @@ const useColumnSettings = (storageKey, columns) => {
         maskClosable={false}
       >
         <Text type="secondary">
-          Перетаскивайте элементы, чтобы изменить порядок столбцов.
+          Перетаскивайте элементы, чтобы изменить порядок столбцов. Отмечайте чекбоксы для скрытия/показа.
         </Text>
         <div style={{ marginTop: 16 }}>
           <DragDropContext onDragEnd={handleModalDragEnd}>
@@ -137,14 +166,13 @@ const useColumnSettings = (storageKey, columns) => {
                   {localOrder.map((key, index) => {
                     const col = columns.find((c, i) => getColumnKey(c, i) === key)
                     if (!col) return null
-                    
+
                     return (
                       <Draggable key={key} draggableId={key} index={index}>
                         {(dragProvided, snapshot) => (
                           <div
                             ref={dragProvided.innerRef}
                             {...dragProvided.draggableProps}
-                            {...dragProvided.dragHandleProps}
                             style={{
                               padding: '8px 12px',
                               borderRadius: 4,
@@ -157,8 +185,15 @@ const useColumnSettings = (storageKey, columns) => {
                             }}
                           >
                             <Space>
-                              <MenuOutlined style={{ cursor: 'grab', color: '#999' }} />
-                              <span>{col.title}</span>
+                              <div {...dragProvided.dragHandleProps} style={{ cursor: 'grab' }}>
+                                <MenuOutlined style={{ color: '#999' }} />
+                              </div>
+                              <Checkbox
+                                checked={!localHidden.includes(key)}
+                                onChange={(e) => handleToggleVisibility(key, e.target.checked)}
+                              >
+                                {col.title}
+                              </Checkbox>
                             </Space>
                           </div>
                         )}
