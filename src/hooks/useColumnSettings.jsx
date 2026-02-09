@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useEffect } from 'react'
+import React, { useMemo, useState, useCallback } from 'react'
 import { Button, Modal, Space, Typography, Checkbox } from 'antd'
 import { MenuOutlined, SettingOutlined } from '@ant-design/icons'
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd'
@@ -7,107 +7,80 @@ const { Text } = Typography
 
 const getColumnKey = (col, index) => col.dataIndex ?? col.key ?? `col_${index}`
 
-const loadOrder = (storageKey, columns) => {
-  if (typeof window === 'undefined') return columns.map(getColumnKey)
-  try {
-    const saved = window.localStorage.getItem(storageKey)
-    if (!saved) return columns.map(getColumnKey)
-    const parsed = JSON.parse(saved)
-    if (parsed?.order && Array.isArray(parsed.order)) {
-      const allKeys = columns.map((col, i) => getColumnKey(col, i))
-      const existing = parsed.order.filter(key => allKeys.includes(key))
-      const missing = allKeys.filter(key => !existing.includes(key))
-      return [...existing, ...missing]
-    }
-  } catch {
-    // ignore
-  }
-  return columns.map(getColumnKey)
-}
-
-const loadHidden = (storageKey) => {
-  if (typeof window === 'undefined') return []
-  try {
-    const saved = window.localStorage.getItem(storageKey)
-    if (!saved) return []
-    const parsed = JSON.parse(saved)
-    if (Array.isArray(parsed?.hidden)) return parsed.hidden
-  } catch {
-    // ignore
-  }
-  return []
-}
-
-const saveSettings = (storageKey, order, hidden) => {
-  if (typeof window === 'undefined') return
-  try {
-    const payload = { order, hidden }
-    window.localStorage.setItem(storageKey, JSON.stringify(payload))
-  } catch {
-    // ignore
-  }
-}
-
 const useColumnSettings = (storageKey, columns) => {
-  const [order, setOrder] = useState(() => loadOrder(storageKey, columns))
-  const [hidden, setHidden] = useState(() => loadHidden(storageKey))
-  const [open, setOpen] = useState(false)
-  const [draftOrder, setDraftOrder] = useState([])
-  const [draftHidden, setDraftHidden] = useState([])
+  // Получаем все ключи текущих колонок
+  const allColumnKeys = useMemo(() => 
+    columns.map((col, i) => getColumnKey(col, i)), 
+    [columns]
+  )
 
-  // Инициализируем draft при монтировании и обновлении
-  useEffect(() => {
-    setDraftOrder(order)
-    setDraftHidden(hidden)
-  }, [order, hidden])
-
-  // Обработчик открытия модалки
-  const handleOpenModal = useCallback(() => {
-    setOpen(true)
-    setDraftOrder(order)
-    setDraftHidden(hidden)
-  }, [order, hidden])
-
-  const orderedColumns = useMemo(() => {
-    const keyToColumn = new Map()
-    columns.forEach((col, index) => {
-      keyToColumn.set(getColumnKey(col, index), col)
-    })
-    const result = []
-    order.forEach((key) => {
-      const col = keyToColumn.get(key)
-      if (col && !hidden.includes(key)) result.push(col)
-    })
-    // Добавляем новые ключи, которые не попали в order
-    columns.forEach((col, index) => {
-      const key = getColumnKey(col, index)
-      if (!order.includes(key) && !hidden.includes(key)) {
-        result.push(col)
+  // Настройки загружаются один раз, но мы их обновляем при каждом рендере
+  const [baseSettings, setBaseSettings] = useState(() => {
+    if (typeof window === 'undefined') {
+      return { order: [], hidden: [] }
+    }
+    
+    try {
+      const saved = window.localStorage.getItem(storageKey)
+      if (!saved) return { order: [], hidden: [] }
+      
+      const parsed = JSON.parse(saved)
+      return { 
+        order: Array.isArray(parsed?.order) ? parsed.order : [], 
+        hidden: Array.isArray(parsed?.hidden) ? parsed.hidden : [] 
       }
-    })
-    return result
-  }, [columns, order, hidden])
+    } catch {
+      return { order: [], hidden: [] }
+    }
+  })
+
+  // Деривированные настройки, которые всегда синхронизированы с текущими колонками
+  const settings = useMemo(() => {
+    // Фильтруем только существующие ключи
+    const validOrder = baseSettings.order.filter(key => allColumnKeys.includes(key))
+    const validHidden = baseSettings.hidden.filter(key => allColumnKeys.includes(key))
+    
+    // Добавляем новые колонки в конец order
+    const newKeys = allColumnKeys.filter(key => !validOrder.includes(key))
+    const order = [...validOrder, ...newKeys]
+    
+    return { order, hidden: validHidden }
+  }, [baseSettings.order, baseSettings.hidden, allColumnKeys])
+
+  const [open, setOpen] = useState(false)
+
+  // Сохраняем настройки
+  const saveSettings = useCallback((newOrder, newHidden) => {
+    // Фильтруем только существующие ключи
+    const validOrder = newOrder.filter(key => allColumnKeys.includes(key))
+    const validHidden = newHidden.filter(key => allColumnKeys.includes(key))
+    
+    setBaseSettings({ order: validOrder, hidden: validHidden })
+    if (typeof window !== 'undefined') {
+      try {
+        const payload = { order: validOrder, hidden: validHidden }
+        window.localStorage.setItem(storageKey, JSON.stringify(payload))
+      } catch {
+        // ignore
+      }
+    }
+  }, [allColumnKeys, storageKey])
 
   // Компонент модального окна
   const ColumnSettingsModal = () => {
-    // Локальное состояние для модалки
-    const [localOrder, setLocalOrder] = useState(order)
-    const [localHidden, setLocalHidden] = useState(hidden)
+    // В модалке всегда показываем ВСЕ текущие колонки
+    const [localOrder, setLocalOrder] = useState(settings.order)
+    const [localHidden, setLocalHidden] = useState(settings.hidden)
 
-    // Синхронизируем при открытии
-    useEffect(() => {
-      if (open) {
-        const timer = requestAnimationFrame(() => {
-          setLocalOrder(order)
-          setLocalHidden(hidden)
-        })
-        return () => cancelAnimationFrame(timer)
+    // Сбрасываем состояние при открытии
+    const handleAfterOpenChange = useCallback((visible) => {
+      if (visible) {
+        setLocalOrder(settings.order)
+        setLocalHidden(settings.hidden)
       }
-    }, [open, order, hidden])
+    }, [settings.order, settings.hidden])
 
-    if (!open) return null
-
-    const handleModalDragEnd = (result) => {
+    const handleDragEnd = useCallback((result) => {
       if (!result.destination) return
       const fromIndex = result.source.index
       const toIndex = result.destination.index
@@ -119,43 +92,57 @@ const useColumnSettings = (storageKey, columns) => {
         next.splice(toIndex, 0, moved)
         return next
       })
-    }
+    }, [])
 
-    const handleToggleVisibility = (key, checked) => {
+    const handleToggleVisibility = useCallback((key, checked) => {
       setLocalHidden((prev) =>
         checked ? prev.filter((h) => h !== key) : [...prev, key]
       )
-    }
+    }, [])
 
-    const handleModalSubmit = () => {
-      const allKeys = columns.map((col, i) => getColumnKey(col, i))
-      const existingOrder = localOrder.filter((key) => allKeys.includes(key))
-      const missingOrder = allKeys.filter((key) => !existingOrder.includes(key) && !localHidden.includes(key))
-      const nextOrder = [...existingOrder, ...missingOrder]
-      const nextHidden = localHidden.filter((key) => allKeys.includes(key))
-
-      setOrder(nextOrder)
-      setHidden(nextHidden)
-      saveSettings(storageKey, nextOrder, nextHidden)
+    const handleSubmit = useCallback(() => {
+      saveSettings(localOrder, localHidden)
       setOpen(false)
-    }
+    }, [localOrder, localHidden, saveSettings])
+
+    const handleCancel = useCallback(() => {
+      setOpen(false)
+    }, [])
+
+    // Создаем мап колонок
+    const columnMap = useMemo(() => {
+      const map = new Map()
+      columns.forEach((col, i) => {
+        map.set(getColumnKey(col, i), col)
+      })
+      return map
+    }, [columns])
+
+    // Всегда показываем все колонки
+    const visibleItems = localOrder.map(key => ({
+      key,
+      column: columnMap.get(key)
+    })).filter(item => item.column)
+
+    if (!open) return null
 
     return (
       <Modal
         title="Настройка порядка столбцов"
         open={open}
-        onCancel={() => setOpen(false)}
-        onOk={handleModalSubmit}
+        onCancel={handleCancel}
+        onOk={handleSubmit}
+        afterOpenChange={handleAfterOpenChange}
         okText="Готово"
         cancelText="Отмена"
-        destroyOnClose={false}
         maskClosable={false}
+        width={500}
       >
         <Text type="secondary">
           Перетаскивайте элементы, чтобы изменить порядок столбцов. Отмечайте чекбоксы для скрытия/показа.
         </Text>
-        <div style={{ marginTop: 16 }}>
-          <DragDropContext onDragEnd={handleModalDragEnd}>
+        <div style={{ marginTop: 16, maxHeight: 400, overflowY: 'auto' }}>
+          <DragDropContext onDragEnd={handleDragEnd}>
             <Droppable droppableId="column-settings-droppable">
               {(provided) => (
                 <div
@@ -163,43 +150,39 @@ const useColumnSettings = (storageKey, columns) => {
                   {...provided.droppableProps}
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
-                  {localOrder.map((key, index) => {
-                    const col = columns.find((c, i) => getColumnKey(c, i) === key)
-                    if (!col) return null
-
-                    return (
-                      <Draggable key={key} draggableId={key} index={index}>
-                        {(dragProvided, snapshot) => (
-                          <div
-                            ref={dragProvided.innerRef}
-                            {...dragProvided.draggableProps}
-                            style={{
-                              padding: '8px 12px',
-                              borderRadius: 4,
-                              border: '1px solid #f0f0f0',
-                              background: snapshot.isDragging ? '#e6f4ff' : '#fff',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              ...dragProvided.draggableProps.style,
-                            }}
-                          >
-                            <Space>
-                              <div {...dragProvided.dragHandleProps} style={{ cursor: 'grab' }}>
-                                <MenuOutlined style={{ color: '#999' }} />
-                              </div>
-                              <Checkbox
-                                checked={!localHidden.includes(key)}
-                                onChange={(e) => handleToggleVisibility(key, e.target.checked)}
-                              >
-                                {col.title}
-                              </Checkbox>
-                            </Space>
-                          </div>
-                        )}
-                      </Draggable>
-                    )
-                  })}
+                  {visibleItems.map(({ key, column }, index) => (
+                    <Draggable key={key} draggableId={key} index={index}>
+                      {(dragProvided, snapshot) => (
+                        <div
+                          ref={dragProvided.innerRef}
+                          {...dragProvided.draggableProps}
+                          style={{
+                            padding: '8px 12px',
+                            borderRadius: 4,
+                            border: '1px solid #f0f0f0',
+                            background: snapshot.isDragging ? '#e6f4ff' : '#fff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            ...dragProvided.draggableProps.style,
+                          }}
+                        >
+                          <Space>
+                            <div {...dragProvided.dragHandleProps} style={{ cursor: 'grab' }}>
+                              <MenuOutlined style={{ color: '#999' }} />
+                            </div>
+                            <Checkbox
+                              checked={!localHidden.includes(key)}
+                              onChange={(e) => handleToggleVisibility(key, e.target.checked)}
+                              style={{ minWidth: 200 }}
+                            >
+                              {column.title}
+                            </Checkbox>
+                          </Space>
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
                   {provided.placeholder}
                 </div>
               )}
@@ -210,9 +193,21 @@ const useColumnSettings = (storageKey, columns) => {
     )
   }
 
+  // Отфильтрованные и отсортированные колонки для таблицы
+  const orderedColumns = useMemo(() => {
+    const columnMap = new Map()
+    columns.forEach((col, index) => {
+      columnMap.set(getColumnKey(col, index), col)
+    })
+    
+    return settings.order
+      .filter(key => !settings.hidden.includes(key) && columnMap.has(key))
+      .map(key => columnMap.get(key))
+  }, [columns, settings.order, settings.hidden])
+
   const ColumnSettingsButton = () => (
     <>
-      <Button icon={<SettingOutlined />} onClick={handleOpenModal}>
+      <Button icon={<SettingOutlined />} onClick={() => setOpen(true)}>
         Настроить столбцы
       </Button>
       <ColumnSettingsModal />
