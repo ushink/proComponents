@@ -75,13 +75,16 @@ const ResizableHeader = (props) => {
           onClick={(e) => e.stopPropagation()}
           style={{
             position: 'absolute',
-            width: '3px',
-            right: '-1px',
+            width: '10px',  // Увеличенная область захвата
+            right: '-5px',  // Центрирование на границе столбца
             top: 0,
             bottom: 0,
-            background: '#f0f0f0',
+            background: 'transparent',  // Прозрачный фон для незаметности
             cursor: 'col-resize',
+            transition: 'background 0.2s',  // Для hover-эффекта
           }}
+          onMouseEnter={(e) => { e.target.style.background = '#f0f0f0'; }}  // Визуальная индикация при hover
+          onMouseLeave={(e) => { e.target.style.background = 'transparent'; }}
         />
       }
       onResize={onResize}
