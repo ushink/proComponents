@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useCallback, useEffect } from 'react'
 import { Button, Modal, Space, Typography } from 'antd'
 import { MenuOutlined, SettingOutlined } from '@ant-design/icons'
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd'
@@ -32,20 +32,20 @@ const saveOrder = (storageKey, order) => {
 const useColumnSettings = (storageKey, columns) => {
   const [order, setOrder] = useState(() => loadOrder(storageKey, columns))
   const [open, setOpen] = useState(false)
+  const [draftOrder, setDraftOrder] = useState([])
 
-  // синхронизация с новыми/удалёнными колонками
-  const onSubmit =()=>{
-    const allKeys = columns.map(getColumnKey)
+  // Инициализируем draftOrder при монтировании
+  useEffect(() => {
+    setDraftOrder(order)
+  }, [order])
 
-    setOrder((prev) => {
-      const existing = prev.filter((key) => allKeys.includes(key))
-      const missing = allKeys.filter((key) => !existing.includes(key))
-      const next = [...existing, ...missing]
-      saveOrder(storageKey, next)
-      return next
-    })
-    setOpen(false)
-  }
+  // Обработчик открытия модалки - используем useCallback
+  const handleOpenModal = useCallback(() => {
+    setOpen(true)
+    // Устанавливаем draftOrder синхронно при открытии
+    setDraftOrder(order)
+    console.log('draftOrder', draftOrder)
+  }, [order])
 
 
   const orderedColumns = useMemo(() => {
@@ -68,40 +68,65 @@ const useColumnSettings = (storageKey, columns) => {
     return result
   }, [columns, order])
 
-  const handleDragEnd = (result) => {
-    if (!result.destination) return
-    const fromIndex = result.source.index
-    const toIndex = result.destination.index
-    if (fromIndex === toIndex) return
+  // Компонент модального окна
+  const ColumnSettingsModal = () => {
+    // Используем локальное состояние для отображения в модалке
+    const [localOrder, setLocalOrder] = useState(order)
+    
+    // Синхронизируем при открытии с использованием requestAnimationFrame
+    useEffect(() => {
+      if (open) {
+        // Используем requestAnimationFrame для избежания синхронного обновления
+        const timer = requestAnimationFrame(() => {
+          setLocalOrder(order)
+        })
+        return () => cancelAnimationFrame(timer)
+      }
+    }, [open, order])
 
-    setOrder((prev) => {
-      const next = [...prev]
-      const [moved] = next.splice(fromIndex, 1)
-      next.splice(toIndex, 0, moved)
+    if (!open) return null
+
+    const handleModalDragEnd = (result) => {
+      if (!result.destination) return
+      const fromIndex = result.source.index
+      const toIndex = result.destination.index
+      if (fromIndex === toIndex) return
+
+      setLocalOrder((prev) => {
+        const next = [...prev]
+        const [moved] = next.splice(fromIndex, 1)
+        next.splice(toIndex, 0, moved)
+        return next
+      })
+    }
+
+    const handleModalSubmit = () => {
+      const allKeys = columns.map(getColumnKey)
+      const existing = localOrder.filter((key) => allKeys.includes(key))
+      const missing = allKeys.filter((key) => !existing.includes(key))
+      const next = [...existing, ...missing]
+      
+      setOrder(next)
       saveOrder(storageKey, next)
-      return next
-    })
-  }
+      setOpen(false)
+    }
 
-  const ColumnSettingsButton = () => (
-    <>
-      <Button icon={<SettingOutlined />} onClick={() => setOpen(true)}>
-        Настроить столбцы
-      </Button>
+    return (
       <Modal
         title="Настройка порядка столбцов"
         open={open}
         onCancel={() => setOpen(false)}
-        onOk={onSubmit}
+        onOk={handleModalSubmit}
         okText="Готово"
         cancelText="Отмена"
-        
+        destroyOnClose={false}
+        maskClosable={false}
       >
         <Text type="secondary">
           Перетаскивайте элементы, чтобы изменить порядок столбцов.
         </Text>
         <div style={{ marginTop: 16 }}>
-          <DragDropContext onDragEnd={handleDragEnd}>
+          <DragDropContext onDragEnd={handleModalDragEnd}>
             <Droppable droppableId="column-settings-droppable">
               {(provided) => (
                 <div
@@ -109,8 +134,10 @@ const useColumnSettings = (storageKey, columns) => {
                   {...provided.droppableProps}
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                 >
-                  {orderedColumns.map((col, index) => {
-                    const key = getColumnKey(col, index)
+                  {localOrder.map((key, index) => {
+                    const col = columns.find((c, i) => getColumnKey(c, i) === key)
+                    if (!col) return null
+                    
                     return (
                       <Draggable key={key} draggableId={key} index={index}>
                         {(dragProvided, snapshot) => (
@@ -145,6 +172,15 @@ const useColumnSettings = (storageKey, columns) => {
           </DragDropContext>
         </div>
       </Modal>
+    )
+  }
+
+  const ColumnSettingsButton = () => (
+    <>
+      <Button icon={<SettingOutlined />} onClick={handleOpenModal}>
+        Настроить столбцы
+      </Button>
+      <ColumnSettingsModal />
     </>
   )
 
@@ -152,4 +188,3 @@ const useColumnSettings = (storageKey, columns) => {
 }
 
 export default useColumnSettings
-
