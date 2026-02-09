@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { Table, Typography, Flex, Input, Button } from 'antd'
+import { Table, Typography, Flex, Input, Button, Space } from 'antd'
+import useColumnSettings from '../hooks/useColumnSettings'
 
 const { Title } = Typography
 
@@ -101,6 +102,11 @@ const TablePage = () => {
   const [newColumnName, setNewColumnName] = useState('')
   const [draggingColumnKey, setDraggingColumnKey] = useState(null)
 
+  const { orderedColumns, ColumnSettingsButton } = useColumnSettings(
+    'table-page-columns-order',
+    columns,
+  )
+
   // сохранение в localStorage при любых изменениях
   useEffect(() => {
     const payload = {
@@ -177,7 +183,7 @@ const TablePage = () => {
     event.preventDefault()
   }
 
-  const editableColumns = columns.map((col) => ({
+  const editableColumns = orderedColumns.map((col) => ({
     ...col,
     onHeaderCell: () => ({
       draggable: true,
@@ -197,7 +203,7 @@ const TablePage = () => {
     <Flex vertical style={{ padding: 24, minHeight: '100vh', gap: 16 }}>
       <Title level={3}>Обычная таблица (Antd Table)</Title>
 
-      <Flex gap={8}>
+      <Space style={{ marginBottom: 8 }} wrap>
         <Input
           placeholder="Название нового столбца"
           value={newColumnName}
@@ -208,7 +214,8 @@ const TablePage = () => {
         <Button type="primary" onClick={handleAddColumn}>
           Добавить столбец
         </Button>
-      </Flex>
+        <ColumnSettingsButton />
+      </Space>
 
       <Table columns={editableColumns} dataSource={dataSource} pagination={false} />
     </Flex>

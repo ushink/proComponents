@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
-import { Flex, Typography, Input, Button } from 'antd'
+import { Flex, Typography, Input, Button, Space } from 'antd'
 import { EditableProTable } from '@ant-design/pro-components'
+import useColumnSettings from '../hooks/useColumnSettings'
 
 const { Title } = Typography
 
@@ -117,6 +118,11 @@ const ProTablePage = () => {
   const [newColumnName, setNewColumnName] = useState('')
   const [draggingColumnKey, setDraggingColumnKey] = useState(null)
 
+  const { orderedColumns, ColumnSettingsButton } = useColumnSettings(
+    'pro-table-page-columns-order',
+    columns,
+  )
+
   // сохранение состояния в localStorage
   useEffect(() => {
     const payload = {
@@ -178,7 +184,7 @@ const ProTablePage = () => {
     event.preventDefault()
   }
 
-  const draggableColumns = columns.map((col) => ({
+  const draggableColumns = orderedColumns.map((col) => ({
     ...col,
     onHeaderCell: () => ({
       draggable: true,
@@ -192,7 +198,7 @@ const ProTablePage = () => {
     <Flex vertical style={{ padding: 24, minHeight: '100vh', gap: 16 }}>
       <Title level={3}>ProTable (ant-design/pro-components)</Title>
 
-      <Flex gap={8}>
+      <Space style={{ marginBottom: 8 }} wrap>
         <Input
           placeholder="Название нового столбца"
           value={newColumnName}
@@ -203,7 +209,8 @@ const ProTablePage = () => {
         <Button type="primary" onClick={handleAddColumn}>
           Добавить столбец
         </Button>
-      </Flex>
+        <ColumnSettingsButton />
+      </Space>
 
       <EditableProTable
         rowKey="key"
