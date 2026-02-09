@@ -1,9 +1,11 @@
-import React from 'react'
-import { Table, Typography, Flex } from 'antd'
+import React, { useEffect, useState } from 'react'
+import { Table, Typography, Flex, Input, Button } from 'antd'
 
 const { Title } = Typography
 
-const columns = [
+const STORAGE_KEY = 'table-page-state'
+
+const baseColumns = [
   {
     title: 'ID',
     dataIndex: 'id',
@@ -26,7 +28,7 @@ const columns = [
   },
 ]
 
-const dataSource = [
+const initialDataSource = [
   {
     key: 1,
     id: 1,
@@ -51,10 +53,132 @@ const dataSource = [
 ]
 
 const TablePage = () => {
+  const [columns, setColumns] = useState(() => {
+    if (typeof window === 'undefined') return baseColumns
+    try {
+      const saved = window.localStorage.getItem(STORAGE_KEY)
+      if (!saved) return baseColumns
+      const parsed = JSON.parse(saved)
+      if (parsed?.columns && Array.isArray(parsed.columns)) {
+        return parsed.columns
+      }
+    } catch {
+      // ignore
+    }
+    return baseColumns
+  })
+
+  const [dataSource, setDataSource] = useState(() => {
+    if (typeof window === 'undefined') return initialDataSource
+    try {
+      const saved = window.localStorage.getItem(STORAGE_KEY)
+      if (!saved) return initialDataSource
+      const parsed = JSON.parse(saved)
+      if (parsed?.dataSource && Array.isArray(parsed.dataSource)) {
+        return parsed.dataSource
+      }
+    } catch {
+      // ignore
+    }
+    return initialDataSource
+  })
+
+  const [customColumnIndex, setCustomColumnIndex] = useState(() => {
+    if (typeof window === 'undefined') return 1
+    try {
+      const saved = window.localStorage.getItem(STORAGE_KEY)
+      if (!saved) return 1
+      const parsed = JSON.parse(saved)
+      if (typeof parsed?.customColumnIndex === 'number') {
+        return parsed.customColumnIndex
+      }
+    } catch {
+      // ignore
+    }
+    return 1
+  })
+
+  const [newColumnName, setNewColumnName] = useState('')
+
+  // сохранение в localStorage при любых изменениях
+  useEffect(() => {
+    const payload = {
+      columns,
+      dataSource,
+      customColumnIndex,
+    }
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+  }, [columns, dataSource, customColumnIndex])
+
+  const handleCellChange = (rowKey, dataIndex, value) => {
+    setDataSource((prev) =>
+      prev.map((row) =>
+        row.key === rowKey
+          ? {
+              ...row,
+              [dataIndex]: value,
+            }
+          : row,
+      ),
+    )
+  }
+
+  const handleAddColumn = () => {
+    const trimmedName = newColumnName.trim()
+    if (!trimmedName) return
+
+    const dataIndex = `custom_${customColumnIndex}`
+
+    // Добавляем новую колонку
+    setColumns((prev) => [
+      ...prev,
+      {
+        title: trimmedName,
+        dataIndex,
+        key: dataIndex,
+      },
+    ])
+
+    // Обновляем данные: добавляем новое поле в каждую строку
+    setDataSource((prev) =>
+      prev.map((row) => ({
+        ...row,
+        [dataIndex]: '',
+      })),
+    )
+
+    setCustomColumnIndex((i) => i + 1)
+    setNewColumnName('')
+  }
+
+  const editableColumns = columns.map((col) => ({
+    ...col,
+    render: (_, record) => (
+      <Input
+        value={record[col.dataIndex] ?? ''}
+        onChange={(e) => handleCellChange(record.key, col.dataIndex, e.target.value)}
+      />
+    ),
+  }))
+
   return (
-    <Flex vertical style={{ padding: 24, minHeight: '100vh' }}>
+    <Flex vertical style={{ padding: 24, minHeight: '100vh', gap: 16 }}>
       <Title level={3}>Обычная таблица (Antd Table)</Title>
-      <Table columns={columns} dataSource={dataSource} pagination={false} />
+
+      <Flex gap={8}>
+        <Input
+          placeholder="Название нового столбца"
+          value={newColumnName}
+          onChange={(e) => setNewColumnName(e.target.value)}
+          onPressEnter={handleAddColumn}
+          style={{ maxWidth: 320 }}
+        />
+        <Button type="primary" onClick={handleAddColumn}>
+          Добавить столбец
+        </Button>
+      </Flex>
+
+      <Table columns={editableColumns} dataSource={dataSource} pagination={false} />
     </Flex>
   )
 }
